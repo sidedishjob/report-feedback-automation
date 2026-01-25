@@ -1,1 +1,17 @@
+# misc
 .DS_Store
+*.pem
+*.log
+
+# node
+node_modules/
+
+# environment variables
+.env
+.env.*.local
+.env.local
+!.env.local.example
+
+# editor
+.vscode/
+.idea/
