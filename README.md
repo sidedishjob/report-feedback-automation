@@ -37,6 +37,14 @@ Notionで記録した日報を対象に、
 
 ---
 
+## Processing Flow
+
+日報フィードバック処理の全体像は以下を参照してください。
+
+- [Processing Flow（簡易シーケンス）](docs/processing-flow.md)
+
+---
+
 ## State Management
 
 | Property | Role |
@@ -58,6 +66,7 @@ Notionで記録した日報を対象に、
 - [Architecture](docs/architecture.md)
 - [Batch Design](docs/design.md)
 - [Notion API Design](docs/notion_api.md)
+- [Processing Flow](docs/processing-flow.md)
 - [Tech Stack](docs/tech-stack.md)
 - [Operation](docs/operation.md)
 
