@@ -65,7 +65,7 @@ Notionで記録した日報を対象に、
 - [Overview](docs/overview.md)
 - [Architecture](docs/architecture.md)
 - [Batch Design](docs/design.md)
-- [Notion API Design](docs/notion_api.md)
+- [Notion API Design](docs/notion-api.md)
 - [Processing Flow](docs/processing-flow.md)
 - [Tech Stack](docs/tech-stack.md)
 - [Operation](docs/operation.md)
