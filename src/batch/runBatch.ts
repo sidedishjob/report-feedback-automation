@@ -1,21 +1,34 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '../config.js';
 import { loadPrompt } from '../prompt/loadPrompt.js';
+import type {
+	NotionBlock,
+	NotionBlocksResponse,
+	NotionHeaders,
+	NotionQueryResponse,
+	NotionUpdatePageBody,
+} from '../types/notion.js';
+import type { ProcessResult } from '../types/common.js';
 
 const NOTION_API_BASE = 'https://api.notion.com/v1';
 
-const notionHeaders = () => ({
+const notionHeaders = (): NotionHeaders => ({
 	Authorization: `Bearer ${config.notion.token}`,
 	'Notion-Version': config.notion.version,
 	'Content-Type': 'application/json',
 });
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-const fetchJson = async (url, options) => {
+interface FetchError extends Error {
+	status?: number;
+	body?: unknown;
+}
+
+const fetchJson = async <T = unknown>(url: string, options: RequestInit): Promise<T> => {
 	const res = await fetch(url, options);
 	const text = await res.text();
-	let json;
+	let json: unknown;
 	try {
 		json = text ? JSON.parse(text) : null;
 	} catch {
@@ -24,16 +37,16 @@ const fetchJson = async (url, options) => {
 
 	if (!res.ok) {
 		const msg = `HTTP ${res.status} ${res.statusText} - ${url}\n${text}`;
-		const err = new Error(msg);
+		const err = new Error(msg) as FetchError;
 		err.status = res.status;
 		err.body = json;
 		throw err;
 	}
 
-	return json;
+	return json as T;
 };
 
-const queryTargetPageIds = async () => {
+const queryTargetPageIds = async (): Promise<string[]> => {
 	const body = {
 		filter: {
 			and: [
@@ -44,32 +57,41 @@ const queryTargetPageIds = async () => {
 		page_size: config.batch.maxItemsPerRun,
 	};
 
-	const json = await fetchJson(`${NOTION_API_BASE}/data_sources/${config.notion.dataSourceId}/query`, {
-		method: 'POST',
-		headers: notionHeaders(),
-		body: JSON.stringify(body),
-	});
+	const json = await fetchJson<NotionQueryResponse>(
+		`${NOTION_API_BASE}/data_sources/${config.notion.dataSourceId}/query`,
+		{
+			method: 'POST',
+			headers: notionHeaders(),
+			body: JSON.stringify(body),
+		}
+	);
 
 	const results = json.results || [];
 	return results.map((r) => r.id);
 };
 
-const listBlockChildren = async (blockId, startCursor = null) => {
+const listBlockChildren = async (
+	blockId: string,
+	startCursor: string | null = null
+): Promise<NotionBlocksResponse> => {
 	const params = new URLSearchParams();
 	params.set('page_size', '100');
 	if (startCursor) params.set('start_cursor', startCursor);
 
-	return await fetchJson(`${NOTION_API_BASE}/blocks/${blockId}/children?${params.toString()}`, {
-		method: 'GET',
-		headers: notionHeaders(),
-	});
+	return await fetchJson<NotionBlocksResponse>(
+		`${NOTION_API_BASE}/blocks/${blockId}/children?${params.toString()}`,
+		{
+			method: 'GET',
+			headers: notionHeaders(),
+		}
+	);
 };
 
-const collectBlocksRecursively = async (rootBlockId) => {
-	const collected = [];
+const collectBlocksRecursively = async (rootBlockId: string): Promise<NotionBlock[]> => {
+	const collected: NotionBlock[] = [];
 
-	const walk = async (blockId) => {
-		let cursor = null;
+	const walk = async (blockId: string): Promise<void> => {
+		let cursor: string | null = null;
 
 		do {
 			const json = await listBlockChildren(blockId, cursor);
@@ -97,12 +119,12 @@ const collectBlocksRecursively = async (rootBlockId) => {
 	return collected;
 };
 
-const toPlainText = (richTextArray) => {
+const toPlainText = (richTextArray: unknown): string => {
 	if (!Array.isArray(richTextArray)) return '';
-	return richTextArray.map((rt) => rt?.plain_text || '').join('');
+	return richTextArray.map((rt: { plain_text?: string }) => rt?.plain_text || '').join('');
 };
 
-const blockToMarkdownLine = (block) => {
+const blockToMarkdownLine = (block: NotionBlock): string => {
 	const type = block.type;
 
 	if (type === 'heading_1') return `# ${toPlainText(block.heading_1?.rich_text)}`.trim();
@@ -129,8 +151,8 @@ const blockToMarkdownLine = (block) => {
 	return '';
 };
 
-const blocksToReportMarkdown = (blocks) => {
-	const lines = [];
+const blocksToReportMarkdown = (blocks: NotionBlock[]): string => {
+	const lines: string[] = [];
 
 	for (const b of blocks) {
 		const line = blockToMarkdownLine(b);
@@ -141,7 +163,7 @@ const blocksToReportMarkdown = (blocks) => {
 	return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 };
 
-const generateFeedback = async (systemPrompt, reportMarkdown) => {
+const generateFeedback = async (systemPrompt: string, reportMarkdown: string): Promise<string> => {
 	const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
 	const model = genAI.getGenerativeModel({
 		model: config.gemini.model,
@@ -172,10 +194,10 @@ const generateFeedback = async (systemPrompt, reportMarkdown) => {
 	return result.response.text();
 };
 
-const updatePageProperties = async (pageId, feedback) => {
+const updatePageProperties = async (pageId: string, feedback: string): Promise<void> => {
 	const now = new Date().toISOString();
 
-	const body = {
+	const body: NotionUpdatePageBody = {
 		properties: {
 			GPT_FB: {
 				rich_text: [
@@ -190,14 +212,14 @@ const updatePageProperties = async (pageId, feedback) => {
 		},
 	};
 
-	return await fetchJson(`${NOTION_API_BASE}/pages/${pageId}`, {
+	await fetchJson(`${NOTION_API_BASE}/pages/${pageId}`, {
 		method: 'PATCH',
 		headers: notionHeaders(),
 		body: JSON.stringify(body),
 	});
 };
 
-const processOneItem = async (systemPrompt, pageId) => {
+const processOneItem = async (systemPrompt: string, pageId: string): Promise<ProcessResult> => {
 	// blocks収集 → Markdown整形
 	const blocks = await collectBlocksRecursively(pageId);
 	const reportMarkdown = blocksToReportMarkdown(blocks);
@@ -223,7 +245,7 @@ const processOneItem = async (systemPrompt, pageId) => {
 	return { pageId, status: 'done' };
 };
 
-export const runBatch = async () => {
+export const runBatch = async (): Promise<void> => {
 	const startTime = Date.now();
 	const requestId =
 		process.env.AWS_REQUEST_ID ||
@@ -242,7 +264,7 @@ export const runBatch = async () => {
 	}
 
 	const systemPrompt = await loadPrompt();
-	const results = [];
+	const results: ProcessResult[] = [];
 
 	for (let i = 0; i < pageIds.length; i++) {
 		const pageId = pageIds[i];
@@ -265,7 +287,8 @@ export const runBatch = async () => {
 				` durationMs=${Date.now() - itemStart}`
 			);
 		} catch (e) {
-			const message = e?.message || String(e);
+			const error = e as Error;
+			const message = error?.message || String(e);
 			console.error(`[ITEM_FAIL] pageId=${pageId} durationMs=${Date.now() - itemStart}`);
 			console.error(message);
 

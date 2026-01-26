@@ -5,10 +5,17 @@
   "description": "Notionで記録した日報を対象に、夜間バッチでAIフィードバックを自動生成するツール",
   "type": "module",
   "scripts": {
-    "batch:local": "node scripts/batch-local.js"
+    "build": "tsc",
+    "batch:local": "tsx scripts/batch-local.ts",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "dotenv": "^17.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
   }
 }

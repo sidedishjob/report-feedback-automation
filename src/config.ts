@@ -1,4 +1,6 @@
-const required = (key) => {
+import type { Config } from './types/common.js';
+
+const required = (key: string): string => {
 	const value = process.env[key];
 	if (!value) {
 		throw new Error(`Missing env: ${key}`);
@@ -6,12 +8,12 @@ const required = (key) => {
 	return value;
 };
 
-const toInt = (value, fallback) => {
+const toInt = (value: string | undefined, fallback: number): number => {
 	const parsed = Number.parseInt(value ?? '', 10);
 	return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-export const config = {
+export const config: Config = {
 	notion: {
 		token: required('NOTION_TOKEN'),
 		dataSourceId: required('NOTION_DATA_SOURCE_ID'),
