@@ -174,11 +174,11 @@ Notionの `GPT_FB` プロパティに書き戻す。
 |---|---|
 | `NOTION_TOKEN` | Notion Integration Token（SecureString） |
 | `NOTION_DATA_SOURCE_ID` | 対象Data Source ID |
-| `NOTION_VERSION` | 対象Notion API Version |
+| `NOTION_VERSION` | 対象Notion API Version（default: 2025-09-03） |
 | `GEMINI_API_KEY` | Gemini API Key（SecureString） |
 | `GEMINI_MODEL` | Gemini Model（default: gemini-2.5-flash） |
 | `MAX_ITEMS_PER_RUN` | 最大処理件数（default: 5） |
 | `MIN_BODY_CHARS` | 本文最低文字数（default: 80） |
 | `GEMINI_INTERVAL_MS` | Gemini呼び出し間隔(ms)（default: 15000） |
-| `PROMPT_VERSION` | プロンプトバージョン（例：v1.0） |
+| `PROMPT_VERSION` | プロンプトバージョン(例: v1.0)（defalut: v1.0） |
 | `DEBUG` | 1=デバッグログON |

@@ -127,6 +127,7 @@ page直下に callout（has_children=true）が複数ある
 - divider → ---
 - bulleted_list_item → - {plain_text}
 - paragraph → {plain_text}（空は捨てる）
+- callout → ## {plain_text}
 
 文字列は rich_text[].plain_text を連結して生成する。
 

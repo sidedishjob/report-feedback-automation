@@ -89,7 +89,7 @@ Notionで記録した日報を対象に、
 ## Status
 
 - ドキュメント設計：完了
-- 実装：進行中（Notion API / Gemini API / AWS Lambda）
+- 実装：完了（Notion API / Gemini API / AWS Lambda）
 
 ---
 
