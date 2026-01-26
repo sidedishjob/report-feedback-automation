@@ -1,0 +1,14 @@
+{
+  "name": "report-feedback-automation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Notionで記録した日報を対象に、夜間バッチでAIフィードバックを自動生成するツール",
+  "type": "module",
+  "scripts": {
+    "batch:local": "node scripts/batch-local.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "dotenv": "^17.2.3"
+  }
+}
