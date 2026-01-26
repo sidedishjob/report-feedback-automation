@@ -38,7 +38,7 @@ Notionの `GPT_FB` プロパティに書き戻す。
 ## 4. 処理件数とガード条件
 
 ### 1回あたりの最大処理件数
-- **MAX_ITEMS_PER_RUN = 10**
+- **MAX_ITEMS_PER_RUN = 5**
 
 目的：
 - Gemini無料枠の安全運用
@@ -82,7 +82,7 @@ Notionの `GPT_FB` プロパティに書き戻す。
 ## 6. Gemini API 呼び出し仕様
 
 ### 入力
-- 定型プロンプト（毎回同一）
+- 定型プロンプト（固定）
 - 日報本文（変動）
 
 ### 出力
@@ -91,6 +91,13 @@ Notionの `GPT_FB` プロパティに書き戻す。
 
 ### 使用モデル
 - 無料枠前提の軽量モデル（Flash系）
+
+### 生成設定（generationConfig）
+- `temperature: 0.7` - 創造性と一貫性のバランス
+- `topP: 0.95` - トークン選択の多様性
+
+これらの設定により、フィードバック生成時に過度なばらつきを抑えつつ、
+適度な創造性と一貫性を両立した出力を実現します。
 
 ---
 
@@ -166,10 +173,12 @@ Notionの `GPT_FB` プロパティに書き戻す。
 | Key | 内容 |
 |---|---|
 | `NOTION_TOKEN` | Notion Integration Token（SecureString） |
-| `NOTION_DATABASE_ID` | 対象DB ID |
+| `NOTION_DATA_SOURCE_ID` | 対象Data Source ID |
+| `NOTION_VERSION` | 対象Notion API Version |
 | `GEMINI_API_KEY` | Gemini API Key（SecureString） |
-| `MAX_ITEMS_PER_RUN` | 最大処理件数（default: 10） |
+| `GEMINI_MODEL` | Gemini Model（default: gemini-2.5-flash） |
+| `MAX_ITEMS_PER_RUN` | 最大処理件数（default: 5） |
 | `MIN_BODY_CHARS` | 本文最低文字数（default: 80） |
+| `GEMINI_INTERVAL_MS` | Gemini呼び出し間隔(ms)（default: 15000） |
 | `PROMPT_VERSION` | プロンプトバージョン（例：v1.0） |
-
----
+| `DEBUG` | 1=デバッグログON |
