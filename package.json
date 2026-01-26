@@ -13,6 +13,7 @@
     "node": "24.13.0"
   },
   "dependencies": {
+    "@aws-sdk/client-ssm": "^3.975.0",
     "@google/generative-ai": "^0.24.1",
     "dotenv": "^17.2.3"
   },

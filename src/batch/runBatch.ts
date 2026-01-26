@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { config } from '../config.js';
+import { getConfig } from '../config.js';
 import { loadPrompt } from '../prompt/loadPrompt.js';
 import type {
 	NotionBlock,
@@ -9,10 +9,11 @@ import type {
 	NotionUpdatePageBody,
 } from '../types/notion.js';
 import type { ProcessResult } from '../types/common.js';
+import type { Config } from '../types/common.js';
 
 const NOTION_API_BASE = 'https://api.notion.com/v1';
 
-const notionHeaders = (): NotionHeaders => ({
+const notionHeaders = (config: Config): NotionHeaders => ({
 	Authorization: `Bearer ${config.notion.token}`,
 	'Notion-Version': config.notion.version,
 	'Content-Type': 'application/json',
@@ -46,7 +47,7 @@ const fetchJson = async <T = unknown>(url: string, options: RequestInit): Promis
 	return json as T;
 };
 
-const queryTargetPageIds = async (): Promise<string[]> => {
+const queryTargetPageIds = async (config: Config): Promise<string[]> => {
 	const body = {
 		filter: {
 			and: [
@@ -61,7 +62,7 @@ const queryTargetPageIds = async (): Promise<string[]> => {
 		`${NOTION_API_BASE}/data_sources/${config.notion.dataSourceId}/query`,
 		{
 			method: 'POST',
-			headers: notionHeaders(),
+			headers: notionHeaders(config),
 			body: JSON.stringify(body),
 		}
 	);
@@ -71,6 +72,7 @@ const queryTargetPageIds = async (): Promise<string[]> => {
 };
 
 const listBlockChildren = async (
+	config: Config,
 	blockId: string,
 	startCursor: string | null = null
 ): Promise<NotionBlocksResponse> => {
@@ -82,19 +84,22 @@ const listBlockChildren = async (
 		`${NOTION_API_BASE}/blocks/${blockId}/children?${params.toString()}`,
 		{
 			method: 'GET',
-			headers: notionHeaders(),
+			headers: notionHeaders(config),
 		}
 	);
 };
 
-const collectBlocksRecursively = async (rootBlockId: string): Promise<NotionBlock[]> => {
+const collectBlocksRecursively = async (
+	config: Config,
+	rootBlockId: string
+): Promise<NotionBlock[]> => {
 	const collected: NotionBlock[] = [];
 
 	const walk = async (blockId: string): Promise<void> => {
 		let cursor: string | null = null;
 
 		do {
-			const json = await listBlockChildren(blockId, cursor);
+			const json = await listBlockChildren(config, blockId, cursor);
 			const results = json.results || [];
 
 			for (const b of results) {
@@ -163,7 +168,11 @@ const blocksToReportMarkdown = (blocks: NotionBlock[]): string => {
 	return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 };
 
-const generateFeedback = async (systemPrompt: string, reportMarkdown: string): Promise<string> => {
+const generateFeedback = async (
+	config: Config,
+	systemPrompt: string,
+	reportMarkdown: string
+): Promise<string> => {
 	const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
 	const model = genAI.getGenerativeModel({
 		model: config.gemini.model,
@@ -194,7 +203,11 @@ const generateFeedback = async (systemPrompt: string, reportMarkdown: string): P
 	return result.response.text();
 };
 
-const updatePageProperties = async (pageId: string, feedback: string): Promise<void> => {
+const updatePageProperties = async (
+	config: Config,
+	pageId: string,
+	feedback: string
+): Promise<void> => {
 	const now = new Date().toISOString();
 
 	const body: NotionUpdatePageBody = {
@@ -214,14 +227,18 @@ const updatePageProperties = async (pageId: string, feedback: string): Promise<v
 
 	await fetchJson(`${NOTION_API_BASE}/pages/${pageId}`, {
 		method: 'PATCH',
-		headers: notionHeaders(),
+		headers: notionHeaders(config),
 		body: JSON.stringify(body),
 	});
 };
 
-const processOneItem = async (systemPrompt: string, pageId: string): Promise<ProcessResult> => {
+const processOneItem = async (
+	config: Config,
+	systemPrompt: string,
+	pageId: string
+): Promise<ProcessResult> => {
 	// blocks収集 → Markdown整形
-	const blocks = await collectBlocksRecursively(pageId);
+	const blocks = await collectBlocksRecursively(config, pageId);
 	const reportMarkdown = blocksToReportMarkdown(blocks);
 
 	if (!reportMarkdown) {
@@ -237,10 +254,10 @@ const processOneItem = async (systemPrompt: string, pageId: string): Promise<Pro
 	}
 
 	// Gemini生成
-	const feedback = await generateFeedback(systemPrompt, reportMarkdown);
+	const feedback = await generateFeedback(config, systemPrompt, reportMarkdown);
 
 	// Notionへ保存（GPT_FB / FB_DONE / FB_AT）
-	await updatePageProperties(pageId, feedback);
+	await updatePageProperties(config, pageId, feedback);
 
 	return { pageId, status: 'done' };
 };
@@ -254,7 +271,10 @@ export const runBatch = async (): Promise<void> => {
 
 	console.log(`[START] requestId=${requestId} ts=${new Date().toISOString()}`);
 
-	const pageIds = await queryTargetPageIds();
+	// 設定を取得（SSMまたは環境変数から）
+	const config = await getConfig();
+
+	const pageIds = await queryTargetPageIds(config);
 
 	console.log(`[INFO] requestId=${requestId} targets=${pageIds.length}`);
 
@@ -278,7 +298,7 @@ export const runBatch = async (): Promise<void> => {
 		try {
 			console.log(`[ITEM_START] ${i + 1}/${pageIds.length} pageId=${pageId}`);
 
-			const r = await processOneItem(systemPrompt, pageId);
+			const r = await processOneItem(config, systemPrompt, pageId);
 			results.push(r);
 
 			console.log(
