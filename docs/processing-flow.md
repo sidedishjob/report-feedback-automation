@@ -43,10 +43,7 @@ sequenceDiagram
         L->>G: フィードバック生成<br/>(prompt + 日報本文)
         G-->>L: フィードバック本文
 
-        L->>N: フィードバックを書き戻し
-        N-->>L: 200 OK
-
-        L->>N: FB_DONE=true, FB_AT=now を更新
+        L->>N: ページ更新（PATCH）<br/>(GPT_FB, FB_DONE=true, FB_AT=now)
         N-->>L: 200 OK
     end
 
