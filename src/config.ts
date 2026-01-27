@@ -75,7 +75,7 @@ const initializeConfig = async (): Promise<Config> => {
 			promptVersion: promptVersion || 'v1.0',
 
 			// デバッグ用途（必要なら env でON）
-			debug: debug === '0',
+			debug: debug === '1',
 		},
 	};
 };
