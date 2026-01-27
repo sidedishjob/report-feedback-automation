@@ -250,11 +250,15 @@ const processOneItem = async (
 	}
 
 	if (config.batch.debug) {
-		console.log(`ReportMarkdown (pageId=${pageId}):\n${reportMarkdown}\n`);
+		console.debug(`[DEBUG] ReportMarkdown (pageId=${pageId}):\n${reportMarkdown}\n`);
 	}
 
 	// Gemini生成
 	const feedback = await generateFeedback(config, systemPrompt, reportMarkdown);
+
+	if (config.batch.debug) {
+		console.debug(`[DEBUG] FeedBack (pageId=${pageId}):\n${feedback}\n`);
+	}
 
 	// Notionへ保存（GPT_FB / FB_DONE / FB_AT）
 	await updatePageProperties(config, pageId, feedback);
