@@ -1,6 +1,7 @@
 # バッチ仕様（Notion → Gemini → Notion）
 
 ## 1. 目的
+
 Notionの日報（本文）を読み取り、Gemini APIでフィードバックを生成し、  
 Notionの `GPT_FB` プロパティに書き戻す。
 
@@ -9,6 +10,7 @@ Notionの `GPT_FB` プロパティに書き戻す。
 ---
 
 ## 2. 実行スケジュール
+
 - 実行頻度：**平日（月〜金）1日1回**
 - 実行時刻（例）：**23:30 JST**
 - トリガー：**AWS EventBridge Scheduler → AWS Lambda**
@@ -20,12 +22,14 @@ Notionの `GPT_FB` プロパティに書き戻す。
 ## 3. 対象データ（Notion）
 
 ### 必須プロパティ
+
 - `FB_READY`（checkbox）
 - `FB_DONE`（checkbox）
 - `GPT_FB`（text）
 - `FB_AT`（date / time）
 
 ### 対象抽出条件
+
 以下すべてを満たすページを処理対象とする。
 
 - `FB_READY = true`
@@ -38,15 +42,18 @@ Notionの `GPT_FB` プロパティに書き戻す。
 ## 4. 処理件数とガード条件
 
 ### 1回あたりの最大処理件数
+
 - **MAX_ITEMS_PER_RUN = 5**
 
 目的：
+
 - Gemini無料枠の安全運用
 - 日報が溜まった場合の暴走防止
 
 ---
 
 ### 本文の最低文字数
+
 - **MIN_BODY_CHARS = 80**
 
 - 80文字未満の場合は「内容不足」としてスキップ
@@ -59,6 +66,7 @@ Notionの `GPT_FB` プロパティに書き戻す。
 ## 5. 本文取得と整形ルール
 
 ### 本文取得
+
 1. Notion Database Query API で対象ページを取得
 2. 各 `page_id` に対して `blocks/children` API を呼び、本文を取得
 3. ページング（`next_cursor`）に対応する
@@ -66,6 +74,7 @@ Notionの `GPT_FB` プロパティに書き戻す。
 ---
 
 ### 本文整形ルール（AI入力用）
+
 - ブロックは上から順に連結
 - 見出し：`## 見出し`
 - 箇条書き：`- item`
@@ -82,17 +91,21 @@ Notionの `GPT_FB` プロパティに書き戻す。
 ## 6. Gemini API 呼び出し仕様
 
 ### 入力
+
 - 定型プロンプト（固定）
 - 日報本文（変動）
 
 ### 出力
+
 - 指定されたフォーマット（1)〜6)）を厳守
 - 余計な前置き・結論は出力しない
 
 ### 使用モデル
+
 - 無料枠前提の軽量モデル（Flash系）
 
 ### 生成設定（generationConfig）
+
 - `temperature: 0.7` - 創造性と一貫性のバランス
 - `topP: 0.95` - トークン選択の多様性
 
@@ -104,14 +117,16 @@ Notionの `GPT_FB` プロパティに書き戻す。
 ## 7. Notion への書き戻し仕様
 
 ### 書き込み対象
+
 - `GPT_FB`：フィードバック内容（**上書き**）
 - `FB_DONE`：`true`
 - `FB_AT`：処理実行時刻
 
 ### 更新ルール
+
 - Gemini生成成功 **かつ**
 - Notion更新成功  
-この両方を満たした場合のみ `FB_DONE = true` とする。
+  この両方を満たした場合のみ `FB_DONE = true` とする。
 
 途中失敗時は `FB_DONE` を更新しない。
 
@@ -123,6 +138,7 @@ Notionの `GPT_FB` プロパティに書き戻す。
 - 同一ページの二重処理は原則発生しない
 
 ### 再生成したい場合（手動）
+
 - `FB_DONE` を `false` に戻す
 - 次回バッチで再生成（`GPT_FB` は上書き）
 
@@ -131,13 +147,16 @@ Notionの `GPT_FB` プロパティに書き戻す。
 ## 9. エラーハンドリング方針
 
 ### ページ単位で分離
+
 - 1ページの失敗が、他ページ処理に影響しないようにする
 
 ### 失敗時の扱い
+
 - `FB_DONE` は更新しない
 - 次回バッチで再試行される
 
 ### ログに残す情報
+
 - `page_id`
 - エラー種別
   - Notion取得失敗
@@ -150,6 +169,7 @@ Notionの `GPT_FB` プロパティに書き戻す。
 ## 10. ログ設計（CloudWatch）
 
 ### 1実行あたりのログ
+
 - 実行開始（requestId、対象件数）
 - 成功件数 / 失敗件数
 - 失敗ページの `page_id` と理由
@@ -160,6 +180,7 @@ Notionの `GPT_FB` プロパティに書き戻す。
 ---
 
 ## 11. 成功の定義
+
 以下を満たした場合、処理成功とする。
 
 - 対象ページに `GPT_FB` が書き込まれている
@@ -170,15 +191,15 @@ Notionの `GPT_FB` プロパティに書き戻す。
 
 ## 12. 環境変数・設定値（SSM Parameter Store）
 
-| Key | 内容 |
-|---|---|
-| `NOTION_TOKEN` | Notion Integration Token（SecureString） |
-| `NOTION_DATA_SOURCE_ID` | 対象Data Source ID |
-| `NOTION_VERSION` | 対象Notion API Version（default: 2025-09-03） |
-| `GEMINI_API_KEY` | Gemini API Key（SecureString） |
-| `GEMINI_MODEL` | Gemini Model（default: gemini-2.5-flash） |
-| `MAX_ITEMS_PER_RUN` | 最大処理件数（default: 5） |
-| `MIN_BODY_CHARS` | 本文最低文字数（default: 80） |
-| `GEMINI_INTERVAL_MS` | Gemini呼び出し間隔(ms)（default: 15000） |
-| `PROMPT_VERSION` | プロンプトバージョン(例: v1.0)（defalut: v1.0） |
-| `DEBUG` | 1=デバッグログON |
+| Key                     | 内容                                            |
+| ----------------------- | ----------------------------------------------- |
+| `NOTION_TOKEN`          | Notion Integration Token（SecureString）        |
+| `NOTION_DATA_SOURCE_ID` | 対象Data Source ID                              |
+| `NOTION_VERSION`        | 対象Notion API Version（default: 2025-09-03）   |
+| `GEMINI_API_KEY`        | Gemini API Key（SecureString）                  |
+| `GEMINI_MODEL`          | Gemini Model（default: gemini-2.5-flash）       |
+| `MAX_ITEMS_PER_RUN`     | 最大処理件数（default: 5）                      |
+| `MIN_BODY_CHARS`        | 本文最低文字数（default: 80）                   |
+| `GEMINI_INTERVAL_MS`    | Gemini呼び出し間隔(ms)（default: 15000）        |
+| `PROMPT_VERSION`        | プロンプトバージョン(例: v1.0)（defalut: v1.0） |
+| `DEBUG`                 | 1=デバッグログON                                |

@@ -48,3 +48,4 @@ sequenceDiagram
     end
 
     L-->>EB: 処理完了（ログ出力）
+```

@@ -1,4 +1,5 @@
-# Notion API 設計メモ  
+# Notion API 設計メモ
+
 （1日報を取得する時のリクエスト回数と内容）
 
 ## 目的
@@ -14,7 +15,7 @@ Notion の日報DBから「フィードバック対象の日報1件」を取得�
 - 日報DB：Notion Database（Data Source を持つ）
 - 日報1件：Notion Page（DBの1行）
 - 本文：Page 配下の Blocks ツリー
-- 日報本文は callout（Notionの aside）でセクション分割していることが多い  
+- 日報本文は callout（Notionの aside）でセクション分割していることが多い
   - 例：業務内容 / 反省・気づき / 明日取り組むこと / 備考欄
 - callout は has_children: true になることが多く、中身は子ブロックとして取得する必要がある
 
@@ -111,7 +112,7 @@ page直下に callout（has_children=true）が複数ある
 (3) callout#1 children  
 (4) callout#2 children  
 (5) callout#3 children  
-(6) callout#4 children  
+(6) callout#4 children
 
 ---
 
