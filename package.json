@@ -7,7 +7,11 @@
   "scripts": {
     "build": "tsc",
     "batch:local": "tsx scripts/batch-local.ts",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test 'src/**/*.test.ts'",
+    "format": "prettier --write .",
+    "prettier:check": "prettier --check .",
+    "prettier:fix": "prettier --write ."
   },
   "engines": {
     "node": "24.13.0"
@@ -19,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.10.9",
+    "prettier": "^3.8.1",
     "tsx": "^4.7.0",
     "typescript": "^5.9.3"
   }
