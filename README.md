@@ -58,6 +58,21 @@ Notionで記録した日報を対象に、
 
 ---
 
+## CI / CD
+
+本リポジトリでは **GitHub Actions を用いた CI / CD を構築**しています。
+
+- **CI**
+- main ブランチへの push または PR をトリガーに実行
+- 依存関係インストール・ビルド・チェックを実施
+- **CD**
+- CI 成功後に自動実行
+- GitHub Actions（OIDC）経由で AWS Lambda へ自動デプロイ
+- AWS の認証情報は IAM Role + OIDC により管理
+  ※ 手動での Lambda デプロイは行わない運用としています。
+
+---
+
 ## Docs
 
 詳細設計・運用方法は以下を参照してください。
@@ -90,6 +105,7 @@ Notionで記録した日報を対象に、
 
 - ドキュメント設計：完了
 - 実装：完了（Notion API / Gemini API / AWS Lambda）
+- CI / CD：完了（GitHub Actions）
 
 ---
 
