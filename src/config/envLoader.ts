@@ -2,7 +2,7 @@ import { SSMClient, GetParametersCommand } from "@aws-sdk/client-ssm";
 
 const DEFAULT_SSM_PREFIX = "/report/";
 
-const isLambda = (): boolean => {
+export const isLambda = (): boolean => {
   return !!(
     process.env.AWS_LAMBDA_FUNCTION_NAME ||
     process.env.AWS_EXECUTION_ENV ||
@@ -99,4 +99,9 @@ export const preloadEnvValues = async (keys: string[]): Promise<void> => {
   if (need.length === 0) return;
 
   await preloadFromSSM(need);
+};
+
+/** テスト用: 環境変数キャッシュをクリア */
+export const clearCacheForTesting = (): void => {
+  valueCache.clear();
 };

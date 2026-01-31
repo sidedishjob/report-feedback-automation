@@ -6,7 +6,7 @@ import {
   preloadEnvValues,
 } from "./config/envLoader.js";
 
-const toInt = (value: string | undefined, fallback: number): number => {
+export const toInt = (value: string | undefined, fallback: number): number => {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
@@ -90,4 +90,9 @@ export const getConfig = async (): Promise<Config> => {
     configPromise = initializeConfig();
   }
   return configPromise;
+};
+
+/** テスト用: 設定キャッシュをリセット */
+export const resetConfigForTesting = (): void => {
+  configPromise = null;
 };

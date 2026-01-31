@@ -62,7 +62,7 @@ const fetchJson = async <T = unknown>(
  * =====================================================================
  */
 
-const queryTargetPageIds = async (config: Config): Promise<string[]> => {
+export const queryTargetPageIds = async (config: Config): Promise<string[]> => {
   const body = {
     filter: {
       and: [
@@ -86,7 +86,7 @@ const queryTargetPageIds = async (config: Config): Promise<string[]> => {
   return results.map((r) => r.id);
 };
 
-const listBlockChildren = async (
+export const listBlockChildren = async (
   config: Config,
   blockId: string,
   startCursor: string | null = null,
@@ -104,7 +104,7 @@ const listBlockChildren = async (
   );
 };
 
-const collectBlocksRecursively = async (
+export const collectBlocksRecursively = async (
   config: Config,
   rootBlockId: string,
 ): Promise<NotionBlock[]> => {
@@ -139,7 +139,7 @@ const collectBlocksRecursively = async (
   return collected;
 };
 
-const generateFeedback = async (
+export const generateFeedback = async (
   config: Config,
   systemPrompt: string,
   reportMarkdown: string,
@@ -174,7 +174,7 @@ const generateFeedback = async (
   return result.response.text();
 };
 
-const updatePageProperties = async (
+export const updatePageProperties = async (
   config: Config,
   pageId: string,
   feedback: string,
@@ -198,10 +198,19 @@ const updatePageProperties = async (
   });
 };
 
-const processOneItem = async (
+export interface ProcessOneItemOverrides {
+  generateFeedbackFn?: (
+    config: Config,
+    systemPrompt: string,
+    reportMarkdown: string,
+  ) => Promise<string>;
+}
+
+export const processOneItem = async (
   config: Config,
   systemPrompt: string,
   pageId: string,
+  overrides?: ProcessOneItemOverrides,
 ): Promise<ProcessResult> => {
   // blocks収集 → Markdown整形
   const blocks = await collectBlocksRecursively(config, pageId);
@@ -221,8 +230,10 @@ const processOneItem = async (
     );
   }
 
-  // Gemini生成
-  const feedback = await generateFeedback(config, systemPrompt, reportMarkdown);
+  // Gemini生成（テスト用に差し替え可能）
+  const feedback = overrides?.generateFeedbackFn
+    ? await overrides.generateFeedbackFn(config, systemPrompt, reportMarkdown)
+    : await generateFeedback(config, systemPrompt, reportMarkdown);
 
   if (config.batch.debug) {
     console.debug(`[DEBUG] FeedBack (pageId=${pageId}):\n${feedback}\n`);
@@ -234,7 +245,17 @@ const processOneItem = async (
   return { pageId, status: "done" };
 };
 
-export const runBatch = async (): Promise<void> => {
+export interface RunBatchOverrides {
+  generateFeedbackFn?: (
+    config: Config,
+    systemPrompt: string,
+    reportMarkdown: string,
+  ) => Promise<string>;
+}
+
+export const runBatch = async (
+  overrides?: RunBatchOverrides,
+): Promise<void> => {
   const startTime = Date.now();
   const requestId =
     process.env.AWS_REQUEST_ID ||
@@ -259,6 +280,9 @@ export const runBatch = async (): Promise<void> => {
 
   const systemPrompt = await loadPrompt();
   const results: ProcessResult[] = [];
+  const itemOverrides = overrides?.generateFeedbackFn
+    ? { generateFeedbackFn: overrides.generateFeedbackFn }
+    : undefined;
 
   for (let i = 0; i < pageIds.length; i++) {
     const pageId = pageIds[i];
@@ -274,7 +298,12 @@ export const runBatch = async (): Promise<void> => {
     try {
       console.log(`[ITEM_START] ${i + 1}/${pageIds.length} pageId=${pageId}`);
 
-      const r = await processOneItem(config, systemPrompt, pageId);
+      const r = await processOneItem(
+        config,
+        systemPrompt,
+        pageId,
+        itemOverrides,
+      );
       results.push(r);
 
       console.log(
