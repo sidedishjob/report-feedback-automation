@@ -1,9 +1,10 @@
 name: CD
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
 
 permissions:
   id-token: write
@@ -11,6 +12,8 @@ permissions:
 
 jobs:
   deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
     runs-on: ubuntu-latest
 
     steps:
@@ -21,8 +24,11 @@ jobs:
           node-version: 24
           cache: npm
 
-      - run: npm ci
-      - run: npm run build
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
 
       # ZIP作成（例：dist + node_modules）
       - name: Package
@@ -40,17 +46,18 @@ jobs:
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: GitHubActions
 
       - name: Deploy to Lambda
         run: |
           aws lambda update-function-code \
-            --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}" \
+            --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}" \
             --zip-file "fileb://lambda.zip"
 
       # （任意）更新が反映されたか最低限の確認
       - name: Wait for update
         run: |
           aws lambda wait function-updated \
-            --function-name "${{ vars.LAMBDA_FUNCTION_NAME }}"
+            --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}"
