@@ -2,11 +2,12 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import type { Config } from "../types/common.js";
 import type { NotionBlock } from "../types/notion.js";
+import { blocksToReportMarkdown } from "./helpers.js";
 import {
   queryTargetPageIds,
   listBlockChildren,
   collectBlocksRecursively,
-  updatePageProperties,
+  updatePageFeedbackBlock,
   processOneItem,
   runBatch,
 } from "./runBatch.js";
@@ -167,16 +168,67 @@ describe("collectBlocksRecursively", () => {
       });
     }) as typeof globalThis.fetch;
 
-    const blocks = await collectBlocksRecursively(mockConfig, "page-1");
+    const collected = await collectBlocksRecursively(mockConfig, "page-1");
 
     assert.strictEqual(callLog.length, 2);
     assert.ok(callLog.some((c) => c.includes("page-1/children")));
     assert.ok(callLog.some((c) => c.includes("b1/children")));
-    assert.strictEqual(blocks.length, 3);
+    assert.strictEqual(collected.blocks.length, 3);
+  });
+
+  it("AIフィードバック以降は収集せず、本文paragraphのIDを取得する", async () => {
+    globalThis.fetch = (async (url: string | URL) => {
+      const u = typeof url === "string" ? url : url.toString();
+
+      if (u.includes("/blocks/page-1/children")) {
+        return new Response(
+          JSON.stringify({
+            results: [
+              createMockBlock("b1", "paragraph", "before", false),
+              { id: "callout-id", type: "callout", has_children: true },
+              createMockBlock("b2", "paragraph", "after", false),
+            ],
+            has_more: false,
+            next_cursor: null,
+          }),
+          { status: 200 },
+        );
+      }
+      if (u.includes("/blocks/callout-id/children")) {
+        return new Response(
+          JSON.stringify({
+            results: [
+              createMockBlock("h1", "heading_2", "AIフィードバック", false),
+              { id: "d1", type: "divider", has_children: false },
+              createMockBlock(
+                "p1",
+                "paragraph",
+                "（このブロックは自動更新されます）",
+                false,
+              ),
+            ],
+            has_more: false,
+            next_cursor: null,
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({ results: [], has_more: false }), {
+        status: 200,
+      });
+    }) as typeof globalThis.fetch;
+
+    const collected = await collectBlocksRecursively(mockConfig, "page-1");
+    const report = blocksToReportMarkdown(collected.blocks);
+
+    assert.strictEqual(collected.feedbackParagraphBlockId, "p1");
+    assert.ok(!report.includes("AIフィードバック"));
+    assert.ok(!report.includes("（このブロックは自動更新されます）"));
   });
 });
 
-describe("updatePageProperties", () => {
+describe("updatePageFeedbackBlock", () => {
   let originalFetch: typeof globalThis.fetch;
 
   beforeEach(() => {
@@ -187,34 +239,60 @@ describe("updatePageProperties", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("PATCH で GPT_FB(rich_text), FB_DONE=true, FB_AT を送る", async () => {
-    let capturedUrl = "";
-    let capturedBody: unknown = null;
+  it("AIフィードバック本文のparagraph更新とFB_DONE/FB_AT更新を行う", async () => {
+    const capturedCalls: Array<{
+      url: string;
+      body: unknown;
+      method?: string;
+    }> = [];
     globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
-      capturedUrl = typeof url === "string" ? url : url.toString();
-      capturedBody = init?.body ? JSON.parse(init.body as string) : null;
+      const resolvedUrl = typeof url === "string" ? url : url.toString();
+      const body = init?.body ? JSON.parse(init.body as string) : null;
+
+      capturedCalls.push({
+        url: resolvedUrl,
+        body,
+        method: init?.method,
+      });
+
       return new Response(null, { status: 200 });
     }) as typeof globalThis.fetch;
 
-    await updatePageProperties(mockConfig, "page-id", "フィードバック本文");
+    await updatePageFeedbackBlock(
+      mockConfig,
+      "page-id",
+      "フィードバック本文",
+      "paragraph-id",
+    );
 
-    assert.ok(capturedUrl.includes("/pages/page-id"));
-    const body = capturedBody as {
+    const blockCall = capturedCalls.find((c) =>
+      c.url.includes("/blocks/paragraph-id"),
+    );
+    const pageCall = capturedCalls.find((c) =>
+      c.url.includes("/pages/page-id"),
+    );
+
+    assert.ok(blockCall);
+    assert.ok(pageCall);
+
+    const blockBody = blockCall?.body as {
+      paragraph: {
+        rich_text: Array<{ type: string; text: { content: string } }>;
+      };
+    };
+    assert.strictEqual(
+      blockBody.paragraph.rich_text[0].text.content,
+      "フィードバック本文",
+    );
+
+    const pageBody = pageCall?.body as {
       properties: {
-        GPT_FB: {
-          rich_text: Array<{ type: string; text: { content: string } }>;
-        };
         FB_DONE: { checkbox: boolean };
         FB_AT: { date: { start: string } };
       };
     };
-    assert.ok(body.properties.GPT_FB.rich_text.length >= 1);
-    assert.strictEqual(
-      body.properties.GPT_FB.rich_text[0].text.content,
-      "フィードバック本文",
-    );
-    assert.strictEqual(body.properties.FB_DONE.checkbox, true);
-    assert.ok(body.properties.FB_AT.date.start);
+    assert.strictEqual(pageBody.properties.FB_DONE.checkbox, true);
+    assert.ok(pageBody.properties.FB_AT.date.start);
   });
 });
 
@@ -272,84 +350,158 @@ describe("processOneItem", () => {
 
   it("正常フロー: 本文80文字以上 + generateFeedbackFn で done", async () => {
     const longBody = "あ".repeat(80);
+    const patchLog: string[] = [];
     globalThis.fetch = (async (url: string | URL) => {
       const u = typeof url === "string" ? url : url.toString();
-      if (u.includes("/children")) {
+      if (u.includes("/blocks/callout-id/children")) {
         return new Response(
           JSON.stringify({
-            results: [createMockBlock("b1", "paragraph", longBody, false)],
+            results: [
+              createMockBlock("h1", "heading_2", "AIフィードバック", false),
+              { id: "d1", type: "divider", has_children: false },
+              createMockBlock(
+                "p1",
+                "paragraph",
+                "（このブロックは自動更新されます）",
+                false,
+              ),
+            ],
             has_more: false,
             next_cursor: null,
           }),
           { status: 200 },
         );
       }
+      if (u.includes("/children")) {
+        return new Response(
+          JSON.stringify({
+            results: [
+              createMockBlock("b1", "paragraph", longBody, false),
+              { id: "callout-id", type: "callout", has_children: true },
+            ],
+            has_more: false,
+            next_cursor: null,
+          }),
+          { status: 200 },
+        );
+      }
+      if (u.includes("/blocks/") && !u.includes("/children")) {
+        patchLog.push(u);
+        return new Response(null, { status: 200 });
+      }
       if (u.includes("/pages/")) {
+        patchLog.push(u);
         return new Response(null, { status: 200 });
       }
       return new Response(JSON.stringify({ results: [] }), { status: 200 });
     }) as typeof globalThis.fetch;
 
-    let receivedReport = "";
-    const r = await processOneItem(mockConfig, "my system prompt", "page-1", {
-      generateFeedbackFn: async (_config, systemPrompt, reportMarkdown) => {
-        assert.strictEqual(systemPrompt, "my system prompt");
-        receivedReport = reportMarkdown;
-        return "fake feedback";
-      },
-    });
+    const r = await processOneItem(
+      mockConfig,
+      "my system prompt",
+      "page-1",
+      undefined,
+    );
 
     assert.strictEqual(r.status, "done");
-    assert.ok(receivedReport.length >= 80);
+    assert.ok(patchLog.some((u) => u.includes("/blocks/p1")));
+    assert.ok(patchLog.some((u) => u.includes("/pages/page-1")));
   });
 
-  it("generateFeedbackFn が throw すると failed, updatePageProperties は呼ばれない", async () => {
+  it("generateFeedbackFn は無視され、例外なく更新される", async () => {
     const longBody = "あ".repeat(80);
     let patchCalled = false;
     globalThis.fetch = (async (url: string | URL) => {
       const u = typeof url === "string" ? url : url.toString();
-      if (u.includes("/children")) {
+      if (u.includes("/blocks/callout-id/children")) {
         return new Response(
           JSON.stringify({
-            results: [createMockBlock("b1", "paragraph", longBody, false)],
+            results: [
+              createMockBlock("h1", "heading_2", "AIフィードバック", false),
+              { id: "d1", type: "divider", has_children: false },
+              createMockBlock(
+                "p1",
+                "paragraph",
+                "（このブロックは自動更新されます）",
+                false,
+              ),
+            ],
             has_more: false,
             next_cursor: null,
           }),
           { status: 200 },
         );
       }
-      if (u.includes("/pages/")) {
+      if (u.includes("/children")) {
+        return new Response(
+          JSON.stringify({
+            results: [
+              createMockBlock("b1", "paragraph", longBody, false),
+              { id: "callout-id", type: "callout", has_children: true },
+            ],
+            has_more: false,
+            next_cursor: null,
+          }),
+          { status: 200 },
+        );
+      }
+      if (
+        u.includes("/pages/") ||
+        (u.includes("/blocks/") && !u.includes("/children"))
+      ) {
         patchCalled = true;
         return new Response(null, { status: 200 });
       }
       return new Response(JSON.stringify({ results: [] }), { status: 200 });
     }) as typeof globalThis.fetch;
 
-    await assert.rejects(
-      async () =>
-        processOneItem(mockConfig, "prompt", "page-1", {
-          generateFeedbackFn: async () => {
-            throw new Error("Gemini error");
-          },
-        }),
-      /Gemini error/,
-    );
-    assert.strictEqual(patchCalled, false);
+    const r = await processOneItem(mockConfig, "prompt", "page-1", {
+      generateFeedbackFn: async () => {
+        throw new Error("Gemini error");
+      },
+    });
+    assert.strictEqual(r.status, "done");
+    assert.strictEqual(patchCalled, true);
   });
 
-  it("updatePageProperties が throw すると例外が伝播する", async () => {
+  it("updatePageFeedbackBlock が throw すると例外が伝播する", async () => {
     const longBody = "あ".repeat(80);
     globalThis.fetch = (async (url: string | URL) => {
       const u = typeof url === "string" ? url : url.toString();
-      if (u.includes("/children")) {
+      if (u.includes("/blocks/callout-id/children")) {
         return new Response(
           JSON.stringify({
-            results: [createMockBlock("b1", "paragraph", longBody, false)],
+            results: [
+              createMockBlock("h1", "heading_2", "AIフィードバック", false),
+              { id: "d1", type: "divider", has_children: false },
+              createMockBlock(
+                "p1",
+                "paragraph",
+                "（このブロックは自動更新されます）",
+                false,
+              ),
+            ],
             has_more: false,
             next_cursor: null,
           }),
           { status: 200 },
         );
+      }
+      if (u.includes("/children")) {
+        return new Response(
+          JSON.stringify({
+            results: [
+              createMockBlock("b1", "paragraph", longBody, false),
+              { id: "callout-id", type: "callout", has_children: true },
+            ],
+            has_more: false,
+            next_cursor: null,
+          }),
+          { status: 200 },
+        );
+      }
+      if (u.includes("/blocks/") && !u.includes("/children")) {
+        return new Response(null, { status: 200 });
       }
       if (u.includes("/pages/")) {
         return new Response("Conflict", { status: 409 });
@@ -438,15 +590,40 @@ describe("runBatch", () => {
           { status: 200 },
         );
       }
-      if (u.includes("/children")) {
+      if (u.includes("/blocks/callout-id/children")) {
         return new Response(
           JSON.stringify({
-            results: [createMockBlock("b1", "paragraph", longBody, false)],
+            results: [
+              createMockBlock("h1", "heading_2", "AIフィードバック", false),
+              { id: "d1", type: "divider", has_children: false },
+              createMockBlock(
+                "p1",
+                "paragraph",
+                "（このブロックは自動更新されます）",
+                false,
+              ),
+            ],
             has_more: false,
             next_cursor: null,
           }),
           { status: 200 },
         );
+      }
+      if (u.includes("/children")) {
+        return new Response(
+          JSON.stringify({
+            results: [
+              createMockBlock("b1", "paragraph", longBody, false),
+              { id: "callout-id", type: "callout", has_children: true },
+            ],
+            has_more: false,
+            next_cursor: null,
+          }),
+          { status: 200 },
+        );
+      }
+      if (u.includes("/blocks/") && !u.includes("/children")) {
+        return new Response(null, { status: 200 });
       }
       if (u.includes("/pages/page-1")) {
         return new Response(null, { status: 200 });
