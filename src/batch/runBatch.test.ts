@@ -455,13 +455,16 @@ describe("processOneItem", () => {
       return new Response(JSON.stringify({ results: [] }), { status: 200 });
     }) as typeof globalThis.fetch;
 
-    const r = await processOneItem(mockConfig, "prompt", "page-1", {
-      generateFeedbackFn: async () => {
-        throw new Error("Gemini error");
-      },
-    });
-    assert.strictEqual(r.status, "done");
-    assert.strictEqual(patchCalled, true);
+    await assert.rejects(
+      async () =>
+        processOneItem(mockConfig, "prompt", "page-1", {
+          generateFeedbackFn: async () => {
+            throw new Error("Gemini error");
+          },
+        }),
+      /Gemini error/,
+    );
+    assert.strictEqual(patchCalled, false);
   });
 
   it("updatePageFeedbackBlock が throw すると例外が伝播する", async () => {
