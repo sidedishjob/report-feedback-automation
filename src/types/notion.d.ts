@@ -51,14 +51,6 @@ export interface NotionBlocksResponse {
 }
 
 export interface NotionPageProperties {
-  GPT_FB: {
-    rich_text: Array<{
-      type: "text";
-      text: {
-        content: string;
-      };
-    }>;
-  };
   FB_DONE: {
     checkbox: boolean;
   };

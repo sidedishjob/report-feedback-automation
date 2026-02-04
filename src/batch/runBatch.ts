@@ -28,6 +28,11 @@ interface FetchError extends Error {
   body?: unknown;
 }
 
+type CollectedBlocks = {
+  blocks: NotionBlock[];
+  feedbackParagraphBlockId: string | null;
+};
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
@@ -104,39 +109,82 @@ export const listBlockChildren = async (
   );
 };
 
+const extractBlockText = (block: NotionBlock): string => {
+  const richText =
+    block.heading_1?.rich_text ||
+    block.heading_2?.rich_text ||
+    block.heading_3?.rich_text ||
+    block.paragraph?.rich_text ||
+    block.bulleted_list_item?.rich_text ||
+    block.callout?.rich_text ||
+    [];
+
+  return richText.map((t) => t.plain_text || t.text?.content || "").join("");
+};
+
 export const collectBlocksRecursively = async (
   config: Config,
   rootBlockId: string,
-): Promise<NotionBlock[]> => {
+): Promise<CollectedBlocks> => {
   const collected: NotionBlock[] = [];
 
-  const walk = async (blockId: string): Promise<void> => {
-    let cursor: string | null = null;
+  let feedbackParagraphBlockId: string | null = null;
+  let stopCollecting = false;
 
-    do {
+  const walk = async (blockId: string): Promise<void> => {
+    // 初回は cursor=undefined で1回目を取得する
+    let cursor: string | null | undefined = undefined;
+    let mode: "collect" | "seek_divider" | "seek_paragraph" = "collect";
+
+    while (cursor !== null && !stopCollecting) {
       const json = await listBlockChildren(config, blockId, cursor);
       const results = json.results || [];
 
       for (const b of results) {
-        collected.push(b);
+        if (stopCollecting) break;
+        if (mode === "collect") {
+          if (
+            b.type === "heading_2" &&
+            extractBlockText(b) === "AIフィードバック"
+          ) {
+            mode = "seek_divider";
+            continue;
+          }
 
-        if (b.has_children) {
-          // Notionのレート軽減（約3 req/sec目安）
-          await sleep(250);
-          await walk(b.id);
+          collected.push(b);
+
+          if (b.has_children) {
+            // Notionのレート軽減（約3 req/sec目安）
+            await sleep(250);
+            await walk(b.id);
+          }
+          continue;
+        }
+
+        if (mode === "seek_divider") {
+          if (b.type === "divider") {
+            mode = "seek_paragraph";
+          }
+          continue;
+        }
+
+        if (mode === "seek_paragraph" && b.type === "paragraph") {
+          feedbackParagraphBlockId = b.id;
+          stopCollecting = true;
+          return;
         }
       }
 
       cursor = json.has_more ? json.next_cursor : null;
 
-      if (cursor) {
+      if (cursor && !stopCollecting) {
         await sleep(250);
       }
-    } while (cursor);
+    }
   };
 
   await walk(rootBlockId);
-  return collected;
+  return { blocks: collected, feedbackParagraphBlockId };
 };
 
 export const generateFeedback = async (
@@ -174,18 +222,26 @@ export const generateFeedback = async (
   return result.response.text();
 };
 
-export const updatePageProperties = async (
+export const updatePageFeedbackBlock = async (
   config: Config,
   pageId: string,
   feedback: string,
+  paragraphBlockId: string,
 ): Promise<void> => {
   const now = new Date().toISOString();
 
-  const body: NotionUpdatePageBody = {
-    properties: {
-      GPT_FB: {
+  await fetchJson(`${NOTION_API_BASE}/blocks/${paragraphBlockId}`, {
+    method: "PATCH",
+    headers: notionHeaders(config),
+    body: JSON.stringify({
+      paragraph: {
         rich_text: toNotionRichText(feedback),
       },
+    }),
+  });
+
+  const body: NotionUpdatePageBody = {
+    properties: {
       FB_DONE: { checkbox: true },
       FB_AT: { date: { start: now } },
     },
@@ -213,12 +269,13 @@ export const processOneItem = async (
   overrides?: ProcessOneItemOverrides,
 ): Promise<ProcessResult> => {
   // blocks収集 → Markdown整形
-  const blocks = await collectBlocksRecursively(config, pageId);
-  const reportMarkdown = blocksToReportMarkdown(blocks);
+  const collected = await collectBlocksRecursively(config, pageId);
+  const reportMarkdown = blocksToReportMarkdown(collected.blocks);
 
   if (!reportMarkdown) {
     return { pageId, status: "skipped", reason: "insufficient_content" };
   }
+  console.debug(`[DEBUG] reportMarkdownの文字数:\n${reportMarkdown.length}\n`);
 
   if (reportMarkdown.length < config.batch.minBodyChars) {
     return { pageId, status: "skipped", reason: "insufficient_content" };
@@ -239,8 +296,19 @@ export const processOneItem = async (
     console.debug(`[DEBUG] FeedBack (pageId=${pageId}):\n${feedback}\n`);
   }
 
-  // Notionへ保存（GPT_FB / FB_DONE / FB_AT）
-  await updatePageProperties(config, pageId, feedback);
+  if (!collected.feedbackParagraphBlockId) {
+    throw new Error(
+      `AIフィードバックの本文paragraphが見つかりません pageId=${pageId}`,
+    );
+  }
+
+  // Notionへ保存（AIフィードバック本文 / FB_DONE / FB_AT）
+  await updatePageFeedbackBlock(
+    config,
+    pageId,
+    feedback,
+    collected.feedbackParagraphBlockId,
+  );
 
   return { pageId, status: "done" };
 };

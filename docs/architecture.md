@@ -7,7 +7,7 @@
 - **Notion**
   - 日報の入力
   - 処理状態（FB_READY / FB_DONE）の管理
-  - フィードバック結果（GPT_FB）の保存
+  - フィードバック結果（AIフィードバックブロック）の保存
 - **AWS EventBridge**
   - 平日夜間の定期実行トリガー
 - **AWS Lambda**
@@ -30,7 +30,7 @@
 6. 定型プロンプト + 日報本文を Gemini API に送信
 7. Gemini API がフィードバックを生成
 8. Lambda が Notion に以下を更新
-   - `GPT_FB`：フィードバック内容
+   - 「AIフィードバック」ブロック本文：フィードバック内容
    - `FB_DONE = true`
    - `FB_AT = 実行日時`
 
