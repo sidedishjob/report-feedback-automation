@@ -191,15 +191,15 @@ Notion本文の「AIフィードバック」ブロックに書き戻す。
 
 ## 12. 環境変数・設定値（SSM Parameter Store）
 
-| Key                     | 内容                                            |
-| ----------------------- | ----------------------------------------------- |
-| `NOTION_TOKEN`          | Notion Integration Token（SecureString）        |
-| `NOTION_DATA_SOURCE_ID` | 対象Data Source ID                              |
-| `NOTION_VERSION`        | 対象Notion API Version（default: 2025-09-03）   |
-| `GEMINI_API_KEY`        | Gemini API Key（SecureString）                  |
-| `GEMINI_MODEL`          | Gemini Model（default: gemini-2.5-flash）       |
-| `MAX_ITEMS_PER_RUN`     | 最大処理件数（default: 5）                      |
-| `MIN_BODY_CHARS`        | 本文最低文字数（default: 80）                   |
-| `GEMINI_INTERVAL_MS`    | Gemini呼び出し間隔(ms)（default: 15000）        |
+| Key                     | 内容                                               |
+| ----------------------- | -------------------------------------------------- |
+| `NOTION_TOKEN`          | Notion Integration Token（SecureString）           |
+| `NOTION_DATA_SOURCE_ID` | 対象Data Source ID                                 |
+| `NOTION_VERSION`        | 対象Notion API Version（default: 2025-09-03）      |
+| `GEMINI_API_KEY`        | Gemini API Key（SecureString）                     |
+| `GEMINI_MODEL`          | Gemini Model（default: gemini-2.5-flash）          |
+| `MAX_ITEMS_PER_RUN`     | 最大処理件数（default: 5）                         |
+| `MIN_BODY_CHARS`        | 本文最低文字数（default: 80）                      |
+| `GEMINI_INTERVAL_MS`    | Gemini呼び出し間隔(ms)（default: 15000）           |
 | `PROMPT_VERSION`        | `latest` または固定版(例: v1.0)（default: latest） |
-| `DEBUG`                 | 1=デバッグログON                                |
+| `DEBUG`                 | 1=デバッグログON                                   |
