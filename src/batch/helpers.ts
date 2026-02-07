@@ -1,10 +1,11 @@
 import type { Config } from "../types/common.js";
-import type { NotionBlock, NotionHeaders } from "../types/notion.js";
-
-export type NotionWriteRichText = {
-  type: "text";
-  text: { content: string };
-};
+import type {
+  NotionBlock,
+  NotionHeaders,
+  NotionWriteBlock,
+  NotionWriteBulletedListItemBlock,
+  NotionWriteRichText,
+} from "../types/notion.js";
 
 export const notionHeaders = (config: Config): NotionHeaders => ({
   Authorization: `Bearer ${config.notion.token}`,
@@ -62,6 +63,166 @@ export const blocksToReportMarkdown = (blocks: NotionBlock[]): string => {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+};
+
+const pushRichText = (
+  out: NotionWriteRichText[],
+  content: string,
+  bold = false,
+  limit = 1990,
+): void => {
+  if (!content) return;
+
+  let rest = content;
+  while (rest.length > 0) {
+    const chunk = rest.slice(0, limit);
+    out.push({
+      type: "text",
+      text: { content: chunk },
+      ...(bold ? { annotations: { bold: true } } : {}),
+    });
+    rest = rest.slice(chunk.length);
+  }
+};
+
+const parseInlineBold = (text: string): NotionWriteRichText[] => {
+  if (!text) return [];
+
+  const richTexts: NotionWriteRichText[] = [];
+  const re = /\*\*(.+?)\*\*/g;
+  let cursor = 0;
+
+  for (;;) {
+    const match = re.exec(text);
+    if (!match) break;
+
+    const plain = text.slice(cursor, match.index);
+    pushRichText(richTexts, plain, false);
+
+    const bold = match[1] || "";
+    pushRichText(richTexts, bold, true);
+
+    cursor = match.index + match[0].length;
+  }
+
+  const tail = text.slice(cursor);
+  pushRichText(richTexts, tail, false);
+  return richTexts;
+};
+
+const toHeadingBlock = (level: number, text: string): NotionWriteBlock => {
+  const richText = parseInlineBold(text.trim());
+
+  if (level === 1) {
+    return {
+      object: "block",
+      type: "heading_1",
+      heading_1: { rich_text: richText },
+    };
+  }
+
+  if (level === 2) {
+    return {
+      object: "block",
+      type: "heading_2",
+      heading_2: { rich_text: richText },
+    };
+  }
+
+  return {
+    object: "block",
+    type: "heading_3",
+    heading_3: { rich_text: richText },
+  };
+};
+
+const toParagraphBlock = (text: string): NotionWriteBlock => ({
+  object: "block",
+  type: "paragraph",
+  paragraph: {
+    rich_text: parseInlineBold(text),
+  },
+});
+
+export const markdownToNotionBlocks = (
+  markdown: string,
+): NotionWriteBlock[] => {
+  if (!markdown?.trim()) return [];
+
+  const blocks: NotionWriteBlock[] = [];
+  const listStack: NotionWriteBulletedListItemBlock[] = [];
+  const paragraphLines: string[] = [];
+
+  const flushParagraph = (): void => {
+    if (paragraphLines.length === 0) return;
+
+    const text = paragraphLines.join("\n").trim();
+    paragraphLines.length = 0;
+    if (!text) return;
+    blocks.push(toParagraphBlock(text));
+  };
+
+  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\t/g, "    ");
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      flushParagraph();
+      listStack.length = 0;
+      continue;
+    }
+
+    const headingMatch = line.match(/^(#{1,3})\s+(.*)$/);
+    if (headingMatch) {
+      flushParagraph();
+      listStack.length = 0;
+      blocks.push(
+        toHeadingBlock(headingMatch[1].length, (headingMatch[2] || "").trim()),
+      );
+      continue;
+    }
+
+    const listMatch = line.match(/^(\s*)-\s+(.*)$/);
+    if (listMatch) {
+      flushParagraph();
+
+      const indentSpaces = (listMatch[1] || "").length;
+      const level = Math.floor(indentSpaces / 4);
+      const text = (listMatch[2] || "").trim();
+      if (!text) {
+        listStack.length = level;
+        continue;
+      }
+
+      const listItem: NotionWriteBulletedListItemBlock = {
+        object: "block",
+        type: "bulleted_list_item",
+        bulleted_list_item: {
+          rich_text: parseInlineBold(text),
+        },
+      };
+
+      if (level === 0 || !listStack[level - 1]) {
+        blocks.push(listItem);
+      } else {
+        const parent = listStack[level - 1];
+        if (!parent.children) parent.children = [];
+        parent.children.push(listItem);
+      }
+
+      listStack[level] = listItem;
+      listStack.length = level + 1;
+      continue;
+    }
+
+    listStack.length = 0;
+    paragraphLines.push(trimmed);
+  }
+
+  flushParagraph();
+  return blocks;
 };
 
 /**
