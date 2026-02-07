@@ -61,6 +61,65 @@ describe("loadPrompt", () => {
     );
   });
 
+  it("promptVersion が latest のとき prompts 配下の最新版を読む", async () => {
+    let capturedPath = "";
+    await loadPrompt({
+      getConfigFn: async () => ({
+        ...mockConfig,
+        batch: { ...mockConfig.batch, promptVersion: "latest" },
+      }),
+      readDirFn: async () => [
+        "prompt_v1.0.md",
+        "prompt_v1.10.md",
+        "prompt_v1.2.md",
+      ],
+      readFileFn: async (filepath: string) => {
+        capturedPath = filepath;
+        return "latest content";
+      },
+    });
+
+    assert.ok(
+      capturedPath.endsWith("prompt_v1.10.md"),
+      `path should end with prompt_v1.10.md, got: ${capturedPath}`,
+    );
+  });
+
+  it("promptVersion が空文字のとき prompts 配下の最新版を読む", async () => {
+    let capturedPath = "";
+    await loadPrompt({
+      getConfigFn: async () => ({
+        ...mockConfig,
+        batch: { ...mockConfig.batch, promptVersion: "" },
+      }),
+      readDirFn: async () => ["prompt_v1.0.md", "prompt_v1.1.md"],
+      readFileFn: async (filepath: string) => {
+        capturedPath = filepath;
+        return "latest content";
+      },
+    });
+
+    assert.ok(
+      capturedPath.endsWith("prompt_v1.1.md"),
+      `path should end with prompt_v1.1.md, got: ${capturedPath}`,
+    );
+  });
+
+  it("latest 解決時にプロンプトファイルが無いときはエラーにする", async () => {
+    await assert.rejects(
+      async () =>
+        loadPrompt({
+          getConfigFn: async () => ({
+            ...mockConfig,
+            batch: { ...mockConfig.batch, promptVersion: "latest" },
+          }),
+          readDirFn: async () => ["README.md"],
+          readFileFn: async () => "unused",
+        }),
+      /No prompt files found/,
+    );
+  });
+
   it("readFile が ENOENT のときエラーが伝播する", async () => {
     const err = new Error("ENOENT: no such file");
     (err as NodeJS.ErrnoException).code = "ENOENT";

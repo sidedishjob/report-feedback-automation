@@ -76,7 +76,7 @@ const initializeConfig = async (): Promise<Config> => {
       geminiIntervalMs: toInt(geminiIntervalMs, 15_000),
 
       // プロンプト外部ファイル切替
-      promptVersion: promptVersion || "v1.0",
+      promptVersion: promptVersion || "latest",
 
       // デバッグ用途（必要なら env でON）
       debug: debug === "1",

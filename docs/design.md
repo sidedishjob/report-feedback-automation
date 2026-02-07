@@ -201,5 +201,5 @@ Notion本文の「AIフィードバック」ブロックに書き戻す。
 | `MAX_ITEMS_PER_RUN`     | 最大処理件数（default: 5）                      |
 | `MIN_BODY_CHARS`        | 本文最低文字数（default: 80）                   |
 | `GEMINI_INTERVAL_MS`    | Gemini呼び出し間隔(ms)（default: 15000）        |
-| `PROMPT_VERSION`        | プロンプトバージョン(例: v1.0)（defalut: v1.0） |
+| `PROMPT_VERSION`        | `latest` または固定版(例: v1.0)（default: latest） |
 | `DEBUG`                 | 1=デバッグログON                                |
