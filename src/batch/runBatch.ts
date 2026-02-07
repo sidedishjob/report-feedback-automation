@@ -3,10 +3,12 @@ import { getConfig } from "../config.js";
 import { loadPrompt } from "../prompt/loadPrompt.js";
 import {
   blocksToReportMarkdown,
+  markdownToNotionBlocks,
   notionHeaders,
-  toNotionRichText,
 } from "./helpers.js";
 import type {
+  NotionAppendChildrenBody,
+  NotionArchiveBlockBody,
   NotionBlock,
   NotionBlocksResponse,
   NotionQueryResponse,
@@ -30,7 +32,9 @@ interface FetchError extends Error {
 
 type CollectedBlocks = {
   blocks: NotionBlock[];
-  feedbackParagraphBlockId: string | null;
+  feedbackContainerBlockId: string | null;
+  feedbackDividerBlockId: string | null;
+  feedbackContentBlockIds: string[];
 };
 
 const sleep = (ms: number): Promise<void> =>
@@ -128,13 +132,16 @@ export const collectBlocksRecursively = async (
 ): Promise<CollectedBlocks> => {
   const collected: NotionBlock[] = [];
 
-  let feedbackParagraphBlockId: string | null = null;
+  let feedbackContainerBlockId: string | null = null;
+  let feedbackDividerBlockId: string | null = null;
+  const feedbackContentBlockIds: string[] = [];
   let stopCollecting = false;
 
   const walk = async (blockId: string): Promise<void> => {
     // 初回は cursor=undefined で1回目を取得する
     let cursor: string | null | undefined = undefined;
-    let mode: "collect" | "seek_divider" | "seek_paragraph" = "collect";
+    let mode: "collect" | "seek_divider" | "collect_feedback_content" =
+      "collect";
 
     while (cursor !== null && !stopCollecting) {
       const json = await listBlockChildren(config, blockId, cursor);
@@ -147,6 +154,7 @@ export const collectBlocksRecursively = async (
             b.type === "heading_2" &&
             extractBlockText(b) === "AIフィードバック"
           ) {
+            feedbackContainerBlockId = blockId;
             mode = "seek_divider";
             continue;
           }
@@ -163,15 +171,15 @@ export const collectBlocksRecursively = async (
 
         if (mode === "seek_divider") {
           if (b.type === "divider") {
-            mode = "seek_paragraph";
+            feedbackDividerBlockId = b.id;
+            mode = "collect_feedback_content";
           }
           continue;
         }
 
-        if (mode === "seek_paragraph" && b.type === "paragraph") {
-          feedbackParagraphBlockId = b.id;
-          stopCollecting = true;
-          return;
+        if (mode === "collect_feedback_content") {
+          feedbackContentBlockIds.push(b.id);
+          continue;
         }
       }
 
@@ -181,10 +189,19 @@ export const collectBlocksRecursively = async (
         await sleep(250);
       }
     }
+
+    if (!stopCollecting && mode !== "collect") {
+      stopCollecting = true;
+    }
   };
 
   await walk(rootBlockId);
-  return { blocks: collected, feedbackParagraphBlockId };
+  return {
+    blocks: collected,
+    feedbackContainerBlockId,
+    feedbackDividerBlockId,
+    feedbackContentBlockIds,
+  };
 };
 
 export const generateFeedback = async (
@@ -226,19 +243,33 @@ export const updatePageFeedbackBlock = async (
   config: Config,
   pageId: string,
   feedback: string,
-  paragraphBlockId: string,
+  feedbackContainerBlockId: string,
+  feedbackContentBlockIds: string[],
 ): Promise<void> => {
-  const now = new Date().toISOString();
+  for (const blockId of feedbackContentBlockIds) {
+    const body: NotionArchiveBlockBody = { archived: true };
+    await fetchJson(`${NOTION_API_BASE}/blocks/${blockId}`, {
+      method: "PATCH",
+      headers: notionHeaders(config),
+      body: JSON.stringify(body),
+    });
+  }
 
-  await fetchJson(`${NOTION_API_BASE}/blocks/${paragraphBlockId}`, {
-    method: "PATCH",
-    headers: notionHeaders(config),
-    body: JSON.stringify({
-      paragraph: {
-        rich_text: toNotionRichText(feedback),
+  const notionBlocks = markdownToNotionBlocks(feedback);
+  for (let i = 0; i < notionBlocks.length; i += 100) {
+    const chunk = notionBlocks.slice(i, i + 100);
+    const body: NotionAppendChildrenBody = { children: chunk };
+    await fetchJson(
+      `${NOTION_API_BASE}/blocks/${feedbackContainerBlockId}/children`,
+      {
+        method: "PATCH",
+        headers: notionHeaders(config),
+        body: JSON.stringify(body),
       },
-    }),
-  });
+    );
+  }
+
+  const now = new Date().toISOString();
 
   const body: NotionUpdatePageBody = {
     properties: {
@@ -296,9 +327,12 @@ export const processOneItem = async (
     console.debug(`[DEBUG] FeedBack (pageId=${pageId}):\n${feedback}\n`);
   }
 
-  if (!collected.feedbackParagraphBlockId) {
+  if (
+    !collected.feedbackContainerBlockId ||
+    !collected.feedbackDividerBlockId
+  ) {
     throw new Error(
-      `AIフィードバックの本文paragraphが見つかりません pageId=${pageId}`,
+      `AIフィードバックの見出しまたはdividerが見つかりません pageId=${pageId}`,
     );
   }
 
@@ -307,7 +341,8 @@ export const processOneItem = async (
     config,
     pageId,
     feedback,
-    collected.feedbackParagraphBlockId,
+    collected.feedbackContainerBlockId,
+    collected.feedbackContentBlockIds,
   );
 
   return { pageId, status: "done" };

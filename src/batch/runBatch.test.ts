@@ -176,7 +176,7 @@ describe("collectBlocksRecursively", () => {
     assert.strictEqual(collected.blocks.length, 3);
   });
 
-  it("AIフィードバック以降は収集せず、本文paragraphのIDを取得する", async () => {
+  it("AIフィードバック以降は収集せず、本文ブロックIDを全件取得する", async () => {
     globalThis.fetch = (async (url: string | URL) => {
       const u = typeof url === "string" ? url : url.toString();
 
@@ -206,6 +206,7 @@ describe("collectBlocksRecursively", () => {
                 "（このブロックは自動更新されます）",
                 false,
               ),
+              createMockBlock("p2", "paragraph", "旧フィードバック2", false),
             ],
             has_more: false,
             next_cursor: null,
@@ -222,7 +223,9 @@ describe("collectBlocksRecursively", () => {
     const collected = await collectBlocksRecursively(mockConfig, "page-1");
     const report = blocksToReportMarkdown(collected.blocks);
 
-    assert.strictEqual(collected.feedbackParagraphBlockId, "p1");
+    assert.strictEqual(collected.feedbackContainerBlockId, "callout-id");
+    assert.strictEqual(collected.feedbackDividerBlockId, "d1");
+    assert.deepStrictEqual(collected.feedbackContentBlockIds, ["p1", "p2"]);
     assert.ok(!report.includes("AIフィードバック"));
     assert.ok(!report.includes("（このブロックは自動更新されます）"));
   });
@@ -239,7 +242,7 @@ describe("updatePageFeedbackBlock", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("AIフィードバック本文のparagraph更新とFB_DONE/FB_AT更新を行う", async () => {
+  it("AIフィードバック領域を全置換してFB_DONE/FB_AT更新を行う", async () => {
     const capturedCalls: Array<{
       url: string;
       body: unknown;
@@ -261,29 +264,58 @@ describe("updatePageFeedbackBlock", () => {
     await updatePageFeedbackBlock(
       mockConfig,
       "page-id",
-      "フィードバック本文",
-      "paragraph-id",
+      "### 1. 見出し\n\n- **項目**\n    - 詳細",
+      "callout-id",
+      ["old-1", "old-2"],
     );
 
-    const blockCall = capturedCalls.find((c) =>
-      c.url.includes("/blocks/paragraph-id"),
+    const archiveCall1 = capturedCalls.find((c) =>
+      c.url.includes("/blocks/old-1"),
+    );
+    const archiveCall2 = capturedCalls.find((c) =>
+      c.url.includes("/blocks/old-2"),
+    );
+    const appendCall = capturedCalls.find((c) =>
+      c.url.includes("/blocks/callout-id/children"),
     );
     const pageCall = capturedCalls.find((c) =>
       c.url.includes("/pages/page-id"),
     );
 
-    assert.ok(blockCall);
+    assert.ok(archiveCall1);
+    assert.ok(archiveCall2);
+    assert.ok(appendCall);
     assert.ok(pageCall);
 
-    const blockBody = blockCall?.body as {
-      paragraph: {
-        rich_text: Array<{ type: string; text: { content: string } }>;
-      };
+    const archiveBody = archiveCall1?.body as {
+      archived: boolean;
     };
+    assert.strictEqual(archiveBody.archived, true);
+
+    const appendBody = appendCall?.body as {
+      children: Array<{
+        type: string;
+        heading_3?: { rich_text: Array<{ text: { content: string } }> };
+        bulleted_list_item?: {
+          rich_text: Array<{
+            text: { content: string };
+            annotations?: { bold?: boolean };
+          }>;
+        };
+        children?: Array<unknown>;
+      }>;
+    };
+    assert.strictEqual(appendBody.children[0].type, "heading_3");
     assert.strictEqual(
-      blockBody.paragraph.rich_text[0].text.content,
-      "フィードバック本文",
+      appendBody.children[0].heading_3?.rich_text[0].text.content,
+      "1. 見出し",
     );
+    assert.strictEqual(appendBody.children[1].type, "bulleted_list_item");
+    assert.strictEqual(
+      appendBody.children[1].bulleted_list_item?.rich_text[0].annotations?.bold,
+      true,
+    );
+    assert.ok((appendBody.children[1].children?.length || 0) > 0);
 
     const pageBody = pageCall?.body as {
       properties: {
