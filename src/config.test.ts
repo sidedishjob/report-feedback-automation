@@ -60,7 +60,7 @@ describe("getConfig", () => {
     assert.strictEqual(config.batch.maxItemsPerRun, 5);
     assert.strictEqual(config.batch.minBodyChars, 80);
     assert.strictEqual(config.batch.geminiIntervalMs, 15_000);
-    assert.strictEqual(config.batch.promptVersion, "v1.0");
+    assert.strictEqual(config.batch.promptVersion, "latest");
     assert.strictEqual(config.batch.debug, false);
   });
 
