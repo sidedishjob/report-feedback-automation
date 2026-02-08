@@ -306,13 +306,15 @@ export const processOneItem = async (
   if (!reportMarkdown) {
     return { pageId, status: "skipped", reason: "insufficient_content" };
   }
-  console.debug(`[DEBUG] reportMarkdownの文字数:\n${reportMarkdown.length}\n`);
 
   if (reportMarkdown.length < config.batch.minBodyChars) {
     return { pageId, status: "skipped", reason: "insufficient_content" };
   }
 
   if (config.batch.debug) {
+    console.debug(
+      `[DEBUG] reportMarkdownの文字数:\n${reportMarkdown.length}\n`,
+    );
     console.debug(
       `[DEBUG] ReportMarkdown (pageId=${pageId}):\n${reportMarkdown}\n`,
     );
