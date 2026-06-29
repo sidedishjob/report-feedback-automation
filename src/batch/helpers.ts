@@ -150,7 +150,6 @@ export const markdownToNotionBlocks = (
   if (!markdown?.trim()) return [];
 
   const blocks: NotionWriteBlock[] = [];
-  const listStack: NotionWriteBulletedListItemBlock[] = [];
   const paragraphLines: string[] = [];
 
   const flushParagraph = (): void => {
@@ -170,14 +169,12 @@ export const markdownToNotionBlocks = (
 
     if (!trimmed) {
       flushParagraph();
-      listStack.length = 0;
       continue;
     }
 
     const headingMatch = line.match(/^(#{1,3})\s+(.*)$/);
     if (headingMatch) {
       flushParagraph();
-      listStack.length = 0;
       blocks.push(
         toHeadingBlock(headingMatch[1].length, (headingMatch[2] || "").trim()),
       );
@@ -191,33 +188,24 @@ export const markdownToNotionBlocks = (
       const indentSpaces = (listMatch[1] || "").length;
       const level = Math.floor(indentSpaces / 4);
       const text = (listMatch[2] || "").trim();
-      if (!text) {
-        listStack.length = level;
-        continue;
-      }
+      if (!text) continue;
+
+      // Notion の append-children API は深いネスト(children)を受け付けず 400 になるため、
+      // 箇条書きはフラット化してすべてトップレベルに並べる。階層は全角スペースの
+      // インデントで視覚的に表現する。
+      const indentedText = level > 0 ? `${"　".repeat(level)}${text}` : text;
 
       const listItem: NotionWriteBulletedListItemBlock = {
         object: "block",
         type: "bulleted_list_item",
         bulleted_list_item: {
-          rich_text: parseInlineBold(text),
+          rich_text: parseInlineBold(indentedText),
         },
       };
-
-      if (level === 0 || !listStack[level - 1]) {
-        blocks.push(listItem);
-      } else {
-        const parent = listStack[level - 1];
-        if (!parent.children) parent.children = [];
-        parent.children.push(listItem);
-      }
-
-      listStack[level] = listItem;
-      listStack.length = level + 1;
+      blocks.push(listItem);
       continue;
     }
 
-    listStack.length = 0;
     paragraphLines.push(trimmed);
   }
 

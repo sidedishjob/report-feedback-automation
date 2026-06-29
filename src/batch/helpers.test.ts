@@ -350,7 +350,22 @@ describe("markdownToNotionBlocks", () => {
         ),
     ) as NotionWriteBulletedListItemBlock | undefined;
     assert.ok(topBullet, "トップレベルの箇条書きが存在する");
-    assert.ok(topBullet?.children && topBullet.children.length > 0);
+
+    // 案A: ネストはフラット化され、children を持つ箇条書きは存在しない
+    const hasNestedChildren = all.some(
+      (b) => b.type === "bulleted_list_item" && !!b.children,
+    );
+    assert.ok(!hasNestedChildren, "children を持つ箇条書きは存在しない");
+
+    // 旧サブ項目は全角スペースインデント付きでトップレベルに並ぶ
+    const subItem = blocks.find(
+      (b) =>
+        b.type === "bulleted_list_item" &&
+        b.bulleted_list_item.rich_text.some((rt) =>
+          rt.text.content.startsWith("　"),
+        ),
+    );
+    assert.ok(subItem, "ネスト項目が全角スペースインデントでフラット化される");
 
     const topBulletFirstRichText = topBullet?.bulleted_list_item.rich_text[0];
     assert.strictEqual(topBulletFirstRichText?.annotations?.bold, true);
@@ -369,6 +384,26 @@ describe("markdownToNotionBlocks", () => {
         (rt) => rt.annotations?.bold,
       ) || [];
     assert.ok(boldPieces.length >= 2, "「確認」と「記録」が太字で保持される");
+  });
+
+  it("3階層のネスト箇条書きを children なしでフラット化する", () => {
+    const md = ["- 親", "    - 子", "        - 孫"].join("\n");
+    const blocks = markdownToNotionBlocks(md);
+
+    assert.strictEqual(blocks.length, 3, "全項目がトップレベルに並ぶ");
+    assert.ok(
+      blocks.every((b) => b.type === "bulleted_list_item" && !b.children),
+      "children を持つブロックがない",
+    );
+
+    const contents = blocks.map((b) =>
+      b.type === "bulleted_list_item"
+        ? b.bulleted_list_item.rich_text.map((rt) => rt.text.content).join("")
+        : "",
+    );
+    assert.strictEqual(contents[0], "親");
+    assert.strictEqual(contents[1], "　子");
+    assert.strictEqual(contents[2], "　　孫");
   });
 
   it("未対応記法はparagraphへフォールバックする", () => {

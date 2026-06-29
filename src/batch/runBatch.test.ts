@@ -315,7 +315,14 @@ describe("updatePageFeedbackBlock", () => {
       appendBody.children[1].bulleted_list_item?.rich_text[0].annotations?.bold,
       true,
     );
-    assert.ok((appendBody.children[1].children?.length || 0) > 0);
+    // 案A: ネストはフラット化され children を持たない。サブ項目は
+    // 全角スペースインデント付きの独立したトップレベルブロックになる。
+    assert.strictEqual(appendBody.children[1].children, undefined);
+    assert.strictEqual(appendBody.children[2].type, "bulleted_list_item");
+    assert.strictEqual(
+      appendBody.children[2].bulleted_list_item?.rich_text[0].text.content,
+      "　詳細",
+    );
 
     const pageBody = pageCall?.body as {
       properties: {
